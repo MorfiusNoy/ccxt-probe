@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,6 +20,9 @@ var coins = []string{
 
 // биржи билдера. KuCoin perp = отдельный id kucoinfutures.
 var exchanges = []string{"bybit", "kucoin", "mexc", "bingx"}
+
+// Преднабор размеров позиции ($) для проверки суммовой модели Volume.
+var positionUSD = []float64{100, 500, 1000, 5000, 10000, 20000}
 
 type target struct {
 	exchange string
@@ -35,6 +39,37 @@ type result struct {
 	maxDepthPct float64 // докуда дотянулась ask-книга: (last_ask-best_ask)/best_ask*100 (H2)
 	minSpread   float64
 	firstErr    string
+	profile     []string
+}
+
+// usdProfile: для каждой суммы из positionUSD считает, сколько уровней ask-книги
+// съедает эта сумма (Σ цена×объём по уровням, пока не набрали сумму).
+// Возвращает срез строк вида "$5000:3ур" или "$20000:NOFILL" если книга кончилась раньше.
+// Число уровней — главное (не зависит от contract size); "NOFILL" = снапшота НЕ хватило.
+func usdProfile(asks [][]float64) []string {
+	out := make([]string, 0, len(positionUSD))
+	for _, target := range positionUSD {
+		var acc float64
+		levels := 0
+		filled := false
+		for _, lvl := range asks {
+			if len(lvl) < 2 {
+				continue
+			}
+			acc += lvl[0] * lvl[1] // цена × объём = $ этого уровня
+			levels++
+			if acc >= target {
+				filled = true
+				break
+			}
+		}
+		if filled {
+			out = append(out, fmt.Sprintf("$%.0f:%dур", target, levels))
+		} else {
+			out = append(out, fmt.Sprintf("$%.0f:NOFILL(%dур,$%.0f)", target, levels, acc))
+		}
+	}
+	return out
 }
 
 func buildTargets(exchange string) []target {
@@ -106,6 +141,7 @@ func watchOne(ctx context.Context, t target, out chan<- result, wg *sync.WaitGro
 				}
 				lastAsk := ob.Asks[len(ob.Asks)-1][0]
 				r.maxDepthPct = (lastAsk - bestAsk) / bestAsk * 100
+				r.profile = usdProfile(ob.Asks)
 			}
 			mid := (bestBid + bestAsk) / 2
 			if prevMid > 0 {
@@ -158,6 +194,9 @@ func runExchange(exchange string, window time.Duration) {
 		fmt.Printf("@@ROW@@ %-14s %-5s %-16s %7d %6d %6d %6d %11.3f %s\n",
 			r.t.exchange, r.t.market, r.t.symbol, r.updates,
 			r.depthBids, r.depthAsks, r.jumpBad, r.maxDepthPct, status)
+		if r.firstErr == "" && len(r.profile) > 0 {
+			fmt.Printf("@@ROW@@   profile %-14s %-16s %s\n", r.t.exchange, r.t.symbol, strings.Join(r.profile, " "))
+		}
 	}
 	fmt.Println()
 }

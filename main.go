@@ -90,10 +90,14 @@ func buildTargets(exchange string) []target {
 // limitFor возвращает max допустимую глубину книги для биржи.
 // Bybit тянет 1000; KuCoin/MEXC/BingX — потолок 100 (проверено зондом).
 func limitFor(exchange string) int64 {
-	if exchange == "bybit" {
+	switch exchange {
+	case "bybit":
 		return 1000
+	case "kucoin", "kucoinfutures":
+		return 50 // KuCoin: limit=50 → снапшот-канал level2Depth50 (поддержан); 100/1000 → delta-путь (not supported на fut)
+	default:
+		return 100
 	}
-	return 100
 }
 
 func watchOne(ctx context.Context, t target, out chan<- result, wg *sync.WaitGroup) {

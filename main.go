@@ -26,40 +26,6 @@ type target struct {
 	symbol   string // формат CCXT
 }
 
-// toLevels: IOrderBookSide → [][]float64 через GetDataCopy() [][]any.
-// Уровень = [price, amount]. Если тип поля в CCXT иной — CI-компилятор покажет, поправить здесь.
-func toLevels(side interface{ GetDataCopy() [][]any }) [][]float64 {
-	raw := side.GetDataCopy()
-	out := make([][]float64, 0, len(raw))
-	for _, lvl := range raw {
-		if len(lvl) < 2 {
-			continue
-		}
-		p, ok1 := asFloat(lvl[0])
-		a, ok2 := asFloat(lvl[1])
-		if !ok1 || !ok2 {
-			continue
-		}
-		out = append(out, []float64{p, a})
-	}
-	return out
-}
-
-func asFloat(v any) (float64, bool) {
-	switch x := v.(type) {
-	case float64:
-		return x, true
-	case float32:
-		return float64(x), true
-	case int:
-		return float64(x), true
-	case int64:
-		return float64(x), true
-	default:
-		return 0, false
-	}
-}
-
 type result struct {
 	t           target
 	updates     int
@@ -111,18 +77,16 @@ func watchOne(ctx context.Context, t target, out chan<- result, wg *sync.WaitGro
 			return
 		}
 		r.updates++
-		bids := toLevels(ob.Bids)
-		asks := toLevels(ob.Asks)
-		r.depthBids = len(bids)
-		r.depthAsks = len(asks)
-		if len(bids) > 0 && len(asks) > 0 {
-			bestBid, bestAsk := bids[0][0], asks[0][0]
+		r.depthBids = len(ob.Bids)
+		r.depthAsks = len(ob.Asks)
+		if len(ob.Bids) > 0 && len(ob.Asks) > 0 {
+			bestBid, bestAsk := ob.Bids[0][0], ob.Asks[0][0]
 			if bestAsk > 0 {
 				spread := (bestAsk - bestBid) / bestAsk * 100
 				if spread < r.minSpread {
 					r.minSpread = spread
 				}
-				lastAsk := asks[len(asks)-1][0]
+				lastAsk := ob.Asks[len(ob.Asks)-1][0]
 				r.maxDepthPct = (lastAsk - bestAsk) / bestAsk * 100
 			}
 			mid := (bestBid + bestAsk) / 2

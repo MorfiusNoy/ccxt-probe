@@ -52,6 +52,15 @@ func buildTargets(exchange string) []target {
 	return ts
 }
 
+// limitFor возвращает max допустимую глубину книги для биржи.
+// Bybit тянет 1000; KuCoin/MEXC/BingX — потолок 100 (проверено зондом).
+func limitFor(exchange string) int64 {
+	if exchange == "bybit" {
+		return 1000
+	}
+	return 100
+}
+
 func watchOne(ctx context.Context, t target, out chan<- result, wg *sync.WaitGroup) {
 	defer wg.Done()
 	r := result{t: t, minSpread: 1e18}
@@ -77,7 +86,7 @@ func watchOne(ctx context.Context, t target, out chan<- result, wg *sync.WaitGro
 			return
 		default:
 		}
-		ob, err := ex.WatchOrderBook(t.symbol, ccxtpro.WithWatchOrderBookLimit(1000))
+		ob, err := ex.WatchOrderBook(t.symbol, ccxtpro.WithWatchOrderBookLimit(limitFor(t.exchange)))
 		if err != nil {
 			if r.firstErr == "" {
 				r.firstErr = err.Error()
@@ -131,7 +140,7 @@ func runExchange(exchange string, window time.Duration) {
 		results[r.t.exchange+"|"+r.t.market+"|"+r.t.symbol] = r
 	}
 
-	fmt.Printf("%-14s %-5s %-16s %7s %6s %6s %6s %11s %s\n",
+	fmt.Printf("@@ROW@@ %-14s %-5s %-16s %7s %6s %6s %6s %11s %s\n",
 		"EXCHANGE", "MKT", "SYMBOL", "UPD", "DBID", "DASK", "JUMPS", "MAXDEPTH%", "STATUS")
 	for _, t := range ts {
 		r, ok := results[t.exchange+"|"+t.market+"|"+t.symbol]
@@ -146,7 +155,7 @@ func runExchange(exchange string, window time.Duration) {
 		} else if r.jumpBad > 0 {
 			status = "ПРЫГАЕТ"
 		}
-		fmt.Printf("%-14s %-5s %-16s %7d %6d %6d %6d %11.3f %s\n",
+		fmt.Printf("@@ROW@@ %-14s %-5s %-16s %7d %6d %6d %6d %11.3f %s\n",
 			r.t.exchange, r.t.market, r.t.symbol, r.updates,
 			r.depthBids, r.depthAsks, r.jumpBad, r.maxDepthPct, status)
 	}

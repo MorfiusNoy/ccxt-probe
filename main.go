@@ -54,12 +54,21 @@ func buildTargets(exchange string) []target {
 
 func watchOne(ctx context.Context, t target, out chan<- result, wg *sync.WaitGroup) {
 	defer wg.Done()
+	r := result{t: t, minSpread: 1e18}
+	defer func() {
+		if rec := recover(); rec != nil {
+			if r.firstErr == "" {
+				r.firstErr = fmt.Sprintf("panic: %v", rec)
+			}
+			out <- r
+		}
+	}()
 	ex := ccxtpro.CreateExchange(t.exchange, nil)
 	if ex == nil {
-		out <- result{t: t, firstErr: "CreateExchange nil"}
+		r.firstErr = "CreateExchange nil"
+		out <- r
 		return
 	}
-	r := result{t: t, minSpread: 1e18}
 	var prevMid float64
 	for {
 		select {
@@ -68,7 +77,7 @@ func watchOne(ctx context.Context, t target, out chan<- result, wg *sync.WaitGro
 			return
 		default:
 		}
-		ob, err := ex.WatchOrderBook(t.symbol)
+		ob, err := ex.WatchOrderBook(t.symbol, ccxtpro.WithWatchOrderBookLimit(1000))
 		if err != nil {
 			if r.firstErr == "" {
 				r.firstErr = err.Error()
